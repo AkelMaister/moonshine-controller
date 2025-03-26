@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thermal Sensor Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .sensor-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .sensor-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .sensor-value.warning {
+            color: #FFA500;
+        }
+        .sensor-value.danger {
+            color: #FF0000;
+        }
+        .sensor-label {
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .thresholds {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .refresh-button, .save-button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .refresh-button:hover, .save-button:hover {
+            background-color: #1976D2;
+        }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            color: #666;
+        }
+        .threshold-input {
+            width: 60px;
+            padding: 4px;
+            margin: 0 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .threshold-editor {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .threshold-row {
+            margin-bottom: 10px;
+        }
+        .threshold-row label {
+            display: inline-block;
+            width: 120px;
+        }
+        .alert-timestamp {
+            font-size: 12px;
+            color: #FF0000;
+            margin-top: 5px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>Thermal Sensor Dashboard</h1>
+    
+    <div class="threshold-editor">
+        <h2>Threshold Settings</h2>
+        <div class="threshold-row">
+            <label>Probe 1:</label>
+            <input type="number" class="threshold-input" id="probe1-min" step="0.1">°C -
+            <input type="number" class="threshold-input" id="probe1-max" step="0.1">°C
+        </div>
+        <div class="threshold-row">
+            <label>Probe 2:</label>
+            <input type="number" class="threshold-input" id="probe2-min" step="0.1">°C -
+            <input type="number" class="threshold-input" id="probe2-max" step="0.1">°C
+        </div>
+        <div class="threshold-row">
+            <label>Probe 3:</label>
+            <input type="number" class="threshold-input" id="probe3-min" step="0.1">°C -
+            <input type="number" class="threshold-input" id="probe3-max" step="0.1">°C
+        </div>
+        <button class="save-button" onclick="saveThresholds()">Save Thresholds</button>
+    </div>
+
+    {% if latest_data %}
+        <div class="sensor-card">
+            <div class="sensor-label">Temperature Probe 1</div>
+            <div class="sensor-value" id="probe1-value">{{ latest_data.temperature_probe1 }}°C</div>
+            <div class="thresholds" id="probe1-range">Range: <span id="probe1-min-display">20.0</span>°C - <span id="probe1-max-display">30.0</span>°C</div>
+            <div class="alert-timestamp" id="probe1-alert-time"></div>
+        </div>
+        <div class="sensor-card">
+            <div class="sensor-label">Temperature Probe 2</div>
+            <div class="sensor-value" id="probe2-value">{{ latest_data.temperature_probe2 }}°C</div>
+            <div class="thresholds" id="probe2-range">Range: <span id="probe2-min-display">20.0</span>°C - <span id="probe2-max-display">30.0</span>°C</div>
+            <div class="alert-timestamp" id="probe2-alert-time"></div>
+        </div>
+        <div class="sensor-card">
+            <div class="sensor-label">Temperature Probe 3</div>
+            <div class="sensor-value" id="probe3-value">{{ latest_data.temperature_probe3 }}°C</div>
+            <div class="thresholds" id="probe3-range">Range: <span id="probe3-min-display">20.0</span>°C - <span id="probe3-max-display">30.0</span>°C</div>
+            <div class="alert-timestamp" id="probe3-alert-time"></div>
+        </div>
+        <div class="timestamp">
+            Last updated: {{ latest_data.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+            <br>
+            <span id="last-fetch-time"></span>
+        </div>
+    {% else %}
+        <div class="no-data">
+            <h2>No Sensor Data Available</h2>
+            <p>Waiting for the first sensor reading...</p>
+        </div>
+    {% endif %}
+    <button class="refresh-button" onclick="location.reload()">Refresh Data</button>
+
+    <audio id="alert-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>
+
+    <script>
+        // Default thresholds
+        const defaultThresholds = {
+            probe1: { min: 20.0, max: 30.0 },
+            probe2: { min: 20.0, max: 30.0 },
+            probe3: { min: 20.0, max: 30.0 }
+        };
+
+        // Track previous alert state
+        let previousAlertState = false;
+
+        // Load alert timestamps from localStorage
+        function loadAlertTimestamps() {
+            const savedTimestamps = localStorage.getItem('alertTimestamps');
+            return savedTimestamps ? JSON.parse(savedTimestamps) : {};
+        }
+
+        // Save alert timestamps to localStorage
+        function saveAlertTimestamps(timestamps) {
+            localStorage.setItem('alertTimestamps', JSON.stringify(timestamps));
+        }
+
+        // Load thresholds from localStorage or use defaults
+        function loadThresholds() {
+            const savedThresholds = localStorage.getItem('thresholds');
+            let thresholds;
+            
+            if (savedThresholds) {
+                thresholds = JSON.parse(savedThresholds);
+            } else {
+                thresholds = defaultThresholds;
+            }
+
+            // Set the input field values
+            for (let probe = 1; probe <= 3; probe++) {
+                const minInput = document.getElementById(`probe${probe}-min`);
+                const maxInput = document.getElementById(`probe${probe}-max`);
+                
+                if (minInput && maxInput) {
+                    minInput.value = thresholds[`probe${probe}`].min.toFixed(1);
+                    maxInput.value = thresholds[`probe${probe}`].max.toFixed(1);
+                }
+            }
+
+            return thresholds;
+        }
+
+        // Save thresholds to localStorage
+        function saveThresholds() {
+            const thresholds = {
+                probe1: {
+                    min: parseFloat(document.getElementById('probe1-min').value),
+                    max: parseFloat(document.getElementById('probe1-max').value)
+                },
+                probe2: {
+                    min: parseFloat(document.getElementById('probe2-min').value),
+                    max: parseFloat(document.getElementById('probe2-max').value)
+                },
+                probe3: {
+                    min: parseFloat(document.getElementById('probe3-min').value),
+                    max: parseFloat(document.getElementById('probe3-max').value)
+                }
+            };
+
+            localStorage.setItem('thresholds', JSON.stringify(thresholds));
+            updateThresholdDisplays(thresholds);
+            // Check thresholds immediately after saving
+            checkThresholds();
+            alert('Thresholds saved successfully!');
+        }
+
+        // Update threshold displays
+        function updateThresholdDisplays(thresholds) {
+            for (let probe = 1; probe <= 3; probe++) {
+                const minDisplay = document.getElementById(`probe${probe}-min-display`);
+                const maxDisplay = document.getElementById(`probe${probe}-max-display`);
+                
+                if (minDisplay && maxDisplay) {
+                    minDisplay.textContent = thresholds[`probe${probe}`].min;
+                    maxDisplay.textContent = thresholds[`probe${probe}`].max;
+                }
+            }
+        }
+
+        // Function to check thresholds and update display
+        function checkThresholds() {
+            const thresholds = loadThresholds();
+            const probes = ['probe1', 'probe2', 'probe3'];
+            let alertNeeded = false;
+            const alertTimestamps = loadAlertTimestamps();
+
+            probes.forEach(probe => {
+                const valueElement = document.getElementById(`${probe}-value`);
+                if (!valueElement) return; // Skip if element doesn't exist
+
+                const value = parseFloat(valueElement.textContent);
+                const element = valueElement;
+                const alertTimeElement = document.getElementById(`${probe}-alert-time`);
+                const min = thresholds[probe].min;
+                const max = thresholds[probe].max;
+                
+                if (value < min || value > max) {
+                    element.classList.add('danger');
+                    alertNeeded = true;
+                    
+                    // Set alert timestamp if not already set
+                    if (!alertTimestamps[probe]) {
+                        alertTimestamps[probe] = new Date().toISOString();
+                        saveAlertTimestamps(alertTimestamps);
+                        if (alertTimeElement) {
+                            alertTimeElement.textContent = `Alert triggered: ${new Date(alertTimestamps[probe]).toLocaleString()}`;
+                        }
+                    } else if (alertTimeElement) {
+                        alertTimeElement.textContent = `Alert triggered: ${new Date(alertTimestamps[probe]).toLocaleString()}`;
+                    }
+                } else if (value < min + 2 || value > max - 2) {
+                    element.classList.add('warning');
+                    if (alertTimeElement) {
+                        alertTimeElement.textContent = '';
+                    }
+                } else {
+                    element.classList.remove('warning', 'danger');
+                    if (alertTimeElement) {
+                        alertTimeElement.textContent = '';
+                    }
+                    // Clear the alert timestamp when back in range
+                    delete alertTimestamps[probe];
+                    saveAlertTimestamps(alertTimestamps);
+                }
+            });
+
+            // Only play alert sound if alert state has changed from previous state
+            if (alertNeeded && !previousAlertState) {
+                const audio = document.getElementById('alert-sound');
+                audio.play().catch(error => console.log('Audio play failed:', error));
+            }
+            
+            // Update previous alert state
+            previousAlertState = alertNeeded;
+        }
+
+        // Function to update sensor values
+        function updateSensorValues(data) {
+            if (!data || data.length === 0) return;
+            
+            const latest = data[data.length - 1];
+            
+            // Check if we need to create the sensor elements
+            const noDataMessage = document.querySelector('.no-data');
+            if (noDataMessage) {
+                // Remove the no-data message
+                noDataMessage.remove();
+                
+                // Create the sensor cards
+                const sensorContainer = document.createElement('div');
+                sensorContainer.innerHTML = `
+                    <div class="sensor-card">
+                        <div class="sensor-label">Temperature Probe 1</div>
+                        <div class="sensor-value" id="probe1-value">${latest.temperature_probe1}°C</div>
+                        <div class="thresholds" id="probe1-range">Range: <span id="probe1-min-display">20.0</span>°C - <span id="probe1-max-display">30.0</span>°C</div>
+                        <div class="alert-timestamp" id="probe1-alert-time"></div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Temperature Probe 2</div>
+                        <div class="sensor-value" id="probe2-value">${latest.temperature_probe2}°C</div>
+                        <div class="thresholds" id="probe2-range">Range: <span id="probe2-min-display">20.0</span>°C - <span id="probe2-max-display">30.0</span>°C</div>
+                        <div class="alert-timestamp" id="probe2-alert-time"></div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Temperature Probe 3</div>
+                        <div class="sensor-value" id="probe3-value">${latest.temperature_probe3}°C</div>
+                        <div class="thresholds" id="probe3-range">Range: <span id="probe3-min-display">20.0</span>°C - <span id="probe3-max-display">30.0</span>°C</div>
+                        <div class="alert-timestamp" id="probe3-alert-time"></div>
+                    </div>
+                    <div class="timestamp">
+                        Last data update: ${new Date(latest.timestamp).toLocaleString()}<br>
+                        <span id="last-fetch-time">Last fetch: ${new Date().toLocaleString()}</span>
+                    </div>
+                `;
+                
+                // Insert the sensor cards before the refresh button
+                const refreshButton = document.querySelector('.refresh-button');
+                refreshButton.parentNode.insertBefore(sensorContainer, refreshButton);
+                
+                // Initialize thresholds for the new elements
+                initializeThresholds();
+                checkThresholds();
+                
+                return;
+            }
+            
+            // Update existing values
+            const probes = ['probe1', 'probe2', 'probe3'];
+            probes.forEach(probe => {
+                const valueElement = document.getElementById(`${probe}-value`);
+                if (valueElement) {
+                    valueElement.textContent = `${latest[`temperature_${probe}`]}°C`;
+                }
+            });
+            
+            // Update timestamp
+            const timestamp = new Date(latest.timestamp);
+            const timestampElement = document.querySelector('.timestamp');
+            if (timestampElement) {
+                timestampElement.innerHTML = 
+                    `Last data update: ${timestamp.toLocaleString()}<br>` +
+                    `<span id="last-fetch-time">Last fetch: ${new Date().toLocaleString()}</span>`;
+            }
+            
+            // Check thresholds after updating values
+            checkThresholds();
+        }
+
+        // Function to fetch new data
+        async function fetchNewData() {
+            try {
+                const response = await fetch('/sensor/data');
+                const data = await response.json();
+                updateSensorValues(data);
+            } catch (error) {
+                // Update only the fetch time even if there's an error
+                document.getElementById('last-fetch-time').textContent = 
+                    `Last fetch: ${new Date().toLocaleString()} (Error)`;
+            }
+        }
+
+        // Initialize thresholds and alert timestamps
+        function initializeThresholds() {
+            const thresholds = loadThresholds();
+            const alertTimestamps = loadAlertTimestamps();
+            
+            // Set input values and add event listeners
+            for (let probe = 1; probe <= 3; probe++) {
+                const minInput = document.getElementById(`probe${probe}-min`);
+                const maxInput = document.getElementById(`probe${probe}-max`);
+                const alertTimeElement = document.getElementById(`${probe}-alert-time`);
+                
+                // Only proceed if all required elements exist
+                if (minInput && maxInput && alertTimeElement) {
+                    // Set initial values with proper formatting
+                    const minValue = thresholds[`probe${probe}`].min;
+                    const maxValue = thresholds[`probe${probe}`].max;
+                    
+                    // Force the input values to be set
+                    minInput.value = minValue.toFixed(1);
+                    maxInput.value = maxValue.toFixed(1);
+                    
+                    // Force a display update
+                    minInput.dispatchEvent(new Event('input'));
+                    maxInput.dispatchEvent(new Event('input'));
+                    
+                    // Add event listeners for immediate threshold checking
+                    minInput.addEventListener('input', () => {
+                        const newThresholds = {
+                            ...thresholds,
+                            [`probe${probe}`]: {
+                                min: parseFloat(minInput.value) || 0,
+                                max: parseFloat(maxInput.value) || 0
+                            }
+                        };
+                        updateThresholdDisplays(newThresholds);
+                        checkThresholds();
+                    });
+                    
+                    maxInput.addEventListener('input', () => {
+                        const newThresholds = {
+                            ...thresholds,
+                            [`probe${probe}`]: {
+                                min: parseFloat(minInput.value) || 0,
+                                max: parseFloat(maxInput.value) || 0
+                            }
+                        };
+                        updateThresholdDisplays(newThresholds);
+                        checkThresholds();
+                    });
+                    
+                    // Display existing alert timestamps if any
+                    if (alertTimestamps[`probe${probe}`]) {
+                        alertTimeElement.textContent = 
+                            `Alert triggered: ${new Date(alertTimestamps[`probe${probe}`]).toLocaleString()}`;
+                    }
+                }
+            }
+            
+            // Update displays
+            updateThresholdDisplays(thresholds);
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize thresholds immediately
+            initializeThresholds();
+            
+            // Wait a short moment to ensure all elements are loaded
+            setTimeout(() => {
+                // Check if we have sensor values or no-data message
+                const hasSensorData = document.querySelector('.sensor-value');
+                const noDataMessage = document.querySelector('.no-data');
+                
+                if (hasSensorData) {
+                    // Check thresholds immediately with initial values
+                    checkThresholds();
+                    // Initial data fetch
+                    fetchNewData();
+                    // Set up auto-refresh (30 seconds)
+                    setInterval(fetchNewData, 30000);
+                } else if (noDataMessage) {
+                    // Initial data fetch
+                    fetchNewData();
+                    // Set up auto-refresh (30 seconds)
+                    setInterval(fetchNewData, 30000);
+                }
+            }, 100);
+        });
+    </script>
+</body>
+</html> 
